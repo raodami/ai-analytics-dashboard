@@ -1,7 +1,6 @@
 package processor
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
