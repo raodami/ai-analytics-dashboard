@@ -192,7 +192,7 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 		// WebSocket endpoint
 		protected.GET("/ws", func(c *gin.Context) {
 			userID := c.MustGet("user_id").(string)
-			websocket.RegisterWebSocket(c.Writer, c.Request, userID)
+			websocket.RegisterWebSocket(c, userID)
 		})
 
 		protected.POST("/query", func(c *gin.Context) {
