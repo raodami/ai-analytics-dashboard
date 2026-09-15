@@ -153,10 +153,11 @@ func (s *Store) RedeemInvite(token, userID string) error {
 		return err
 	}
 
-	return s.db.Exec(
+	_, err = s.db.Exec(
 		"UPDATE team_invites SET used = true WHERE token = ?",
 		token,
 	)
+	return err
 }
 
 func (s *Store) GetTeamMembers(teamID string) ([]*TeamMember, error) {
