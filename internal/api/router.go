@@ -17,6 +17,7 @@ import (
 	"ai-analytics-dashboard/internal/scheduler"
 	"ai-analytics-dashboard/internal/store"
 	"ai-analytics-dashboard/internal/stripe"
+	"ai-analytics-dashboard/internal/websocket"
 )
 
 // Simple cache for query results
