@@ -337,6 +337,196 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			c.Data(http.StatusOK, contentType, []byte(content))
 		})
 
+		// Chart export endpoints
+		protected.GET("/charts/:id/png", func(c *gin.Context) {
+			chartID := c.Param("id")
+			width := c.DefaultQuery("width", "800")
+			height := c.DefaultQuery("height", "400")
+
+			c.JSON(http.StatusOK, gin.H{
+				"chart_id": chartID,
+				"format":   "png",
+				"url":      fmt.Sprintf("/api/charts/%s/export?width=%s&height=%s", chartID, width, height),
+			})
+		})
+
+		protected.GET("/charts/:id/svg", func(c *gin.Context) {
+			chartID := c.Param("id")
+
+			c.JSON(http.StatusOK, gin.H{
+				"chart_id": chartID,
+				"format":   "svg",
+				"url":      fmt.Sprintf("/api/charts/%s/export", chartID),
+			})
+		})
+
+		// Datasource discovery
+		protected.POST("/datasources/discover", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			type DiscoverRequest struct {
+				Type       string `json:"type" binding:"required"`
+				Connection string `json:"connection" binding:"required"`
+			}
+			var req DiscoverRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			tables, err := datasource.DiscoverTables(req.Type, req.Connection)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"tables": tables})
+		})
+
+		protected.GET("/datasources/schema", func(c *gin.Context) {
+			dbType := c.Query("type")
+			connection := c.Query("connection")
+			if dbType == "" || connection == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "type and connection are required"})
+				return
+			}
+
+			schema, err := datasource.GetSchema(dbType, connection)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"schema": schema})
+		})
+
+		// Report sharing
+		protected.GET("/reports/:id/share", func(c *gin.Context) {
+			reportID := c.Param("id")
+			userID := c.MustGet("user_id").(string)
+
+			report, err := s.GetReport(reportID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+				return
+			}
+
+			if report.UserID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+				return
+			}
+
+			shareToken := uuid.New().String()
+			shareURL := fmt.Sprintf("/share/%s", shareToken)
+
+			if err := s.CreateShareLink(reportID, shareToken, userID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"share_url": shareURL,
+				"token":     shareToken,
+			})
+		})
+
+		protected.GET("/share/:token", func(c *gin.Context) {
+			token := c.Param("token")
+
+			shareLink, err := s.GetShareLink(token)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "share link not found"})
+				return
+			}
+
+			report, err := s.GetReport(shareLink.ReportID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+				return
+			}
+
+			var data []map[string]interface{}
+			json.Unmarshal([]byte(report.Result), &data)
+
+			c.JSON(http.StatusOK, gin.H{
+				"query":      report.Query,
+				"sql":        report.SQL,
+				"chart_type": report.ChartType,
+				"data":       data,
+				"created_at": report.CreatedAt,
+			})
+		})
+
+		// Query templates
+		protected.GET("/templates", func(c *gin.Context) {
+			c.JSON(http.StatusOK, []map[string]interface{}{
+				{
+					"id":          "sales_summary",
+					"name":       "Sales Summary",
+					"description": "Total sales by month",
+					"query":      "SELECT strftime('%Y-%m', created_at) as month, SUM(amount) as total FROM orders GROUP BY month ORDER BY month",
+					"chart_type": "line",
+				},
+				{
+					"id":          "top_customers",
+					"name":       "Top Customers",
+					"description": "Top 10 customers by spending",
+					"query":      "SELECT customer_name, SUM(amount) as total FROM orders GROUP BY customer_name ORDER BY total DESC LIMIT 10",
+					"chart_type": "bar",
+				},
+				{
+					"id":          "revenue_by_category",
+					"name":       "Revenue by Category",
+					"description": "Revenue breakdown by product category",
+					"query":      "SELECT category, SUM(amount) as revenue FROM orders GROUP BY category",
+					"chart_type": "pie",
+				},
+				{
+					"id":          "daily_active_users",
+					"name":       "Daily Active Users",
+					"description": "User activity over time",
+					"query":      "SELECT date(created_at) as day, COUNT(*) as users FROM users GROUP BY day ORDER BY day",
+					"chart_type": "line",
+				},
+				{
+					"id":          "conversion_rate",
+					"name":       "Conversion Rate",
+					"description": "Visitor to customer conversion",
+					"query":      "SELECT COUNT(CASE WHEN status = 'completed' THEN 1 END) * 100.0 / COUNT(*) as rate FROM orders",
+					"chart_type": "bar",
+				},
+			})
+		})
+
+		protected.POST("/queries/template", func(c *gin.Context) {
+			type TemplateRequest struct {
+				TemplateID string `json:"template_id" binding:"required"`
+			}
+			var req TemplateRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			userID := c.MustGet("user_id").(string)
+
+			template := getTemplate(req.TemplateID)
+			if template == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+				return
+			}
+
+			result, err := p.ProcessQuery(userID, template.Query, "")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			reportID := uuid.New().String()
+			s.CreateReport(reportID, userID, template.Name, result.SQL, template.Description, template.ChartType, string(result.Data))
+
+			c.JSON(http.StatusOK, result)
+		})
+
 		protected.GET("/me", func(c *gin.Context) {
 			userID := c.MustGet("user_id").(string)
 			user, err := s.GetUserByID(userID)
