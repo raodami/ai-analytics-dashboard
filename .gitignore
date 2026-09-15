@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env
+.env.local
+data/
+*.db
+.DS_Store
+*.log
+*.exe
+.Dockerfile
