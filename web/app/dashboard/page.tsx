@@ -418,7 +418,7 @@ export default function Dashboard() {
             </div>
             {datasources.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                <DatabaseIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <ServerIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No data sources connected. Add one to get started.</p>
               </div>
             ) : (
