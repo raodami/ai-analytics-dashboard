@@ -7,14 +7,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type ShareLink struct {
-	ID        string    `json:"id"`
-	ReportID  string    `json:"report_id"`
-	Token     string    `json:"token"`
-	UserID    string    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type Store struct {
 	db *sql.DB
 }

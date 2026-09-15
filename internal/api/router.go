@@ -29,6 +29,53 @@ type cacheEntry struct {
 var queryCache = make(map[string]cacheEntry)
 var cacheMu sync.RWMutex
 
+// getTemplate returns a query template by ID
+func getTemplate(id string) *struct {
+	Name       string
+	Query      string
+	Description string
+	ChartType  string
+} {
+	templates := map[string]*struct {
+		Name       string
+		Query      string
+		Description string
+		ChartType  string
+	}{
+		"sales_summary": {
+			Name: "Sales Summary",
+			Query: "SELECT strftime('%Y-%m', created_at) as month, SUM(amount) as total FROM orders GROUP BY month ORDER BY month",
+			Description: "Total sales by month",
+			ChartType: "line",
+		},
+		"top_customers": {
+			Name: "Top Customers",
+			Query: "SELECT customer_name, SUM(amount) as total FROM orders GROUP BY customer_name ORDER BY total DESC LIMIT 10",
+			Description: "Top 10 customers by spending",
+			ChartType: "bar",
+		},
+		"revenue_by_category": {
+			Name: "Revenue by Category",
+			Query: "SELECT category, SUM(amount) as revenue FROM orders GROUP BY category",
+			Description: "Revenue breakdown by product category",
+			ChartType: "pie",
+		},
+		"daily_active_users": {
+			Name: "Daily Active Users",
+			Query: "SELECT date(created_at) as day, COUNT(*) as users FROM users GROUP BY day ORDER BY day",
+			Description: "User activity over time",
+			ChartType: "line",
+		},
+		"conversion_rate": {
+			Name: "Conversion Rate",
+			Query: "SELECT COUNT(CASE WHEN status = 'completed' THEN 1 END) * 100.0 / COUNT(*) as rate FROM orders",
+			Description: "Visitor to customer conversion",
+			ChartType: "bar",
+		},
+	}
+	return templates[id]
+}
+
 type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
@@ -191,8 +238,7 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 	{
 		// WebSocket endpoint
 		protected.GET("/ws", func(c *gin.Context) {
-			userID := c.MustGet("user_id").(string)
-			websocket.RegisterWebSocket(c, userID)
+			websocket.RegisterWebSocket(c)
 		})
 
 		protected.POST("/query", func(c *gin.Context) {
@@ -362,7 +408,6 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 
 		// Datasource discovery
 		protected.POST("/datasources/discover", func(c *gin.Context) {
-			userID := c.MustGet("user_id").(string)
 			type DiscoverRequest struct {
 				Type       string `json:"type" binding:"required"`
 				Connection string `json:"connection" binding:"required"`
