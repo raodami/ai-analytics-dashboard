@@ -9,10 +9,11 @@ import {
 } from 'recharts';
 import {
   ChartBarIcon, ClockIcon, TrashIcon, ArrowPathIcon,
-  ShareIcon, PlusIcon, DatabaseIcon,
+  ShareIcon, PlusIcon,
   CalendarIcon, UsersIcon, SparklesIcon, Cog6ToothIcon,
   PaperAirplaneIcon, ChevronDownIcon, XMarkIcon,
-  MagnifyingGlassIcon, ArrowDownTrayIcon, EyeIcon
+  MagnifyingGlassIcon, ArrowDownTrayIcon, EyeIcon,
+  ServerIcon
 } from '@heroicons/react/24/outline';
 
 type QueryResult = {
@@ -426,7 +427,7 @@ export default function Dashboard() {
                   <div key={ds.id} className="bg-slate-800/50 rounded-xl p-4 border border-gray-700 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-indigo-600/20 rounded-lg flex items-center justify-center">
-                        <DatabaseIcon className="h-5 w-5 text-indigo-400" />
+                        <ServerIcon className="h-5 w-5 text-indigo-400" />
                       </div>
                       <div>
                         <p className="font-medium">{ds.name}</p>
