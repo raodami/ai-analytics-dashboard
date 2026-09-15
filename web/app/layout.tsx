@@ -1,21 +1,17 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import { ThemeProvider } from '@/components/theme-provider';
+import type { Metadata, Viewport } from 'next';
 import SWRegister from './sw-register';
-import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'AI Analytics Dashboard',
   description: 'Natural language to SQL analytics platform',
   manifest: '/manifest.json',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
   themeColor: '#533afd',
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -29,10 +25,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-title" content="Analytics" />
       </head>
       <body style={{ margin: 0, background: '#0f172a' }}>
-        <ThemeProvider>
-          {children}
-          <SWRegister />
-        </ThemeProvider>
+        {children}
+        <SWRegister />
       </body>
     </html>
   );
