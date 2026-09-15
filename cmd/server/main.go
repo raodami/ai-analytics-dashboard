@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"ai-analytics-dashboard/internal/api"
 	"ai-analytics-dashboard/internal/store"
+	"ai-analytics-dashboard/internal/websocket"
 )
 
 func main() {
@@ -20,6 +21,9 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
+
+	// Initialize WebSocket
+	websocket.Init()
 
 	port := os.Getenv("PORT")
 	if port == "" {

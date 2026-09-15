@@ -188,6 +188,12 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 	protected := r.Group("/api")
 	protected.Use(authMiddleware(s))
 	{
+		// WebSocket endpoint
+		protected.GET("/ws", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			websocket.RegisterWebSocket(c.Writer, c.Request, userID)
+		})
+
 		protected.POST("/query", func(c *gin.Context) {
 			type QueryRequest struct {
 				NaturalQuery string `json:"natural_query" binding:"required"`
