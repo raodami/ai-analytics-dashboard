@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 
 type QueryResult = {
+  id?: string;
   sql: string;
   data: Record<string, any>[];
   chart_type: string;
