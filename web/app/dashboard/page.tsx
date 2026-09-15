@@ -248,7 +248,7 @@ export default function Dashboard() {
   };
 
   if (!user) {
-    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><LoaderIcon className="animate-spin h-8 w-8 text-purple-500" /></div>;
+    return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><ArrowPathIcon className="animate-spin h-8 w-8 text-purple-500" /></div>;
   }
 
   return (
