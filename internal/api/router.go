@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -27,10 +28,59 @@ type LoginRequest struct {
 func SetupRoutes(r *gin.Engine, s *store.Store) {
 	p := processor.NewAnalyticsProcessor(s)
 	st := stripe.NewClient()
+	wh := stripe.NewWebhookConfig()
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Stripe Webhook (no auth required)
+	r.POST("/webhook/stripe", func(c *gin.Context) {
+		payload, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+			return
+		}
+
+		sig := c.GetHeader("Stripe-Signature")
+		valid, err := wh.VerifySignature(payload, sig)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if !valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
+			return
+		}
+
+		event, err := wh.ParseEvent(payload)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		switch event.Type {
+		case "checkout.session.completed":
+			userID, err := wh.HandleCheckoutCompleted(event)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			if userID != "" {
+				s.SetUserPro(userID, true)
+			}
+
+		case "customer.subscription.updated", "customer.subscription.created":
+			userID, err := wh.HandleSubscriptionUpdated(event, "")
+			if err != nil && err.Error() != "" {
+				if userID, err = extractUserIDFromEvent(event); err == nil {
+					s.SetUserPro(userID, true)
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"received": true})
 	})
 
 	// Auth routes
@@ -121,7 +171,6 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 
 			userID := c.MustGet("user_id").(string)
 			
-			// Check quota
 			user, _ := s.GetUserByID(userID)
 			if !user.IsPro && user.QueryCount >= 10 {
 				c.JSON(http.StatusForbidden, gin.H{"error": "daily query limit reached. Upgrade to Pro for unlimited queries."})
@@ -134,10 +183,8 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 				return
 			}
 
-			// Increment query count
 			s.IncrementQueryCount(userID)
 
-			// Save report
 			reportID := uuid.New().String()
 			if err := s.CreateReport(reportID, userID, req.NaturalQuery, result.SQL, req.NaturalQuery, result.ChartType, string(result.Data)); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save report"})
@@ -279,6 +326,16 @@ func authMiddleware(s *store.Store) gin.HandlerFunc {
 		c.Set("user_id", userID)
 		c.Next()
 	}
+}
+
+func extractUserIDFromEvent(event *stripe.WebhookEvent) (string, error) {
+	var data struct {
+		Metadata map[string]string `json:"metadata"`
+	}
+	if err := json.Unmarshal(event.Object, &data); err != nil {
+		return "", err
+	}
+	return data.Metadata["user_id"], nil
 }
 
 func max(a, b int) int {
