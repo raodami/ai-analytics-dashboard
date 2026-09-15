@@ -76,7 +76,7 @@ func (c *ChartConfig) renderBar() string {
 		height := 260 * c.Data[0][i] / maxVal
 		bars[i] = fmt.Sprintf(`<rect x="%d" y="%d" width="40" height="%d" fill="%s"/>
 <text x="%d" y="295" text-anchor="middle" fill="#94a3b8" font-size="12">%s</text>`,
-			i*50+50, 280-height, height, c.Colors[0],
+			i*50+50, 280-int(height), int(height), c.Colors[0],
 			i*50+70, label)
 	}
 	return fmt.Sprintf(`
@@ -125,7 +125,7 @@ func (c *ChartConfig) renderScatter() string {
 	for i := range c.Labels {
 		points[i] = fmt.Sprintf(`<circle cx="%d" cy="%d" r="6" fill="%s"/>`,
 			50+i*40,
-			280-c.Data[0][i]/100*260,
+			280-int(c.Data[0][i]/100*260),
 			c.Colors[0],
 		)
 	}
