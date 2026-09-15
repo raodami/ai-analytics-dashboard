@@ -12,11 +12,11 @@ type Store struct {
 }
 
 type User struct {
-	ID        string
-	Email     string
-	Password  string
-	CreatedAt time.Time
-	IsPro     bool
+	ID         string
+	Email      string
+	Password   string
+	CreatedAt  time.Time
+	IsPro      bool
 	QueryCount int
 }
 
@@ -30,15 +30,15 @@ type DataSource struct {
 }
 
 type Report struct {
-	ID          string
-	UserID      string
-	Title       string
-	SQL         string
-	ChartType   string
-	Query       string
-	Result      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID        string
+	UserID    string
+	Title     string
+	SQL       string
+	Query     string
+	ChartType string
+	Result    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func NewDB(path string) (*Store, error) {
@@ -130,10 +130,10 @@ func (s *Store) GetUserByID(id string) (*User, error) {
 	return &u, nil
 }
 
-func (s *Store) UpdateUserQueryCount(id string, count int) error {
+func (s *Store) IncrementQueryCount(id string) error {
 	_, err := s.db.Exec(
-		"UPDATE users SET query_count = query_count + ? WHERE id = ?",
-		count, id,
+		"UPDATE users SET query_count = query_count + 1 WHERE id = ?",
+		id,
 	)
 	return err
 }
@@ -206,4 +206,19 @@ func (s *Store) GetReports(userID string) ([]*Report, error) {
 		reports = append(reports, &r)
 	}
 	return reports, nil
+}
+
+func (s *Store) GetReport(id string) (*Report, error) {
+	var r Report
+	var createdAt, updatedAt int64
+	err := s.db.QueryRow(
+		"SELECT id, user_id, title, sql_query, natural_query, chart_type, result, created_at, updated_at FROM reports WHERE id = ?",
+		id,
+	).Scan(&r.ID, &r.UserID, &r.Title, &r.SQL, &r.Query, &r.ChartType, &r.Result, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt = time.Unix(createdAt, 0)
+	r.UpdatedAt = time.Unix(updatedAt, 0)
+	return &r, nil
 }

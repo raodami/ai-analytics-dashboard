@@ -8,6 +8,7 @@ import (
 	"ai-analytics-dashboard/internal/auth"
 	"ai-analytics-dashboard/internal/processor"
 	"ai-analytics-dashboard/internal/store"
+	"ai-analytics-dashboard/internal/stripe"
 )
 
 type RegisterRequest struct {
@@ -22,6 +23,7 @@ type LoginRequest struct {
 
 func SetupRoutes(r *gin.Engine, s *store.Store) {
 	p := processor.NewAnalyticsProcessor(s)
+	st := stripe.NewClient()
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -38,14 +40,12 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 				return
 			}
 
-			// Check if user exists
 			_, err := s.GetUserByEmail(req.Email)
 			if err == nil {
 				c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
 				return
 			}
 
-			// Create user
 			userID := uuid.New().String()
 			if err := s.CreateUser(userID, req.Email, req.Password); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -93,11 +93,18 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 		})
 	}
 
+	// Public routes
+	publicGroup := r.Group("/api")
+	{
+		publicGroup.GET("/pricing/plans", func(c *gin.Context) {
+			c.JSON(http.StatusOK, st.GetPlans())
+		})
+	}
+
 	// Protected routes
 	protected := r.Group("/api")
 	protected.Use(authMiddleware(s))
 	{
-		// Query endpoint
 		protected.POST("/query", func(c *gin.Context) {
 			type QueryRequest struct {
 				NaturalQuery string `json:"natural_query" binding:"required"`
@@ -109,16 +116,27 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 				return
 			}
 
-			userID, _ := c.Get("user_id")
-			result, err := p.ProcessQuery(userID.(string), req.NaturalQuery, req.DataSourceID)
+			userID := c.MustGet("user_id").(string)
+			
+			// Check quota
+			user, _ := s.GetUserByID(userID)
+			if !user.IsPro && user.QueryCount >= 10 {
+				c.JSON(http.StatusForbidden, gin.H{"error": "daily query limit reached. Upgrade to Pro for unlimited queries."})
+				return
+			}
+
+			result, err := p.ProcessQuery(userID, req.NaturalQuery, req.DataSourceID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 
+			// Increment query count
+			s.IncrementQueryCount(userID)
+
 			// Save report
 			reportID := uuid.New().String()
-			if err := s.CreateReport(reportID, userID.(string), req.NaturalQuery, result.SQL, req.NaturalQuery, result.ChartType, string(result.Data)); err != nil {
+			if err := s.CreateReport(reportID, userID, req.NaturalQuery, result.SQL, req.NaturalQuery, result.ChartType, string(result.Data)); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save report"})
 				return
 			}
@@ -126,10 +144,9 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			c.JSON(http.StatusOK, result)
 		})
 
-		// Get reports
 		protected.GET("/reports", func(c *gin.Context) {
-			userID, _ := c.Get("user_id")
-			reports, err := s.GetReports(userID.(string))
+			userID := c.MustGet("user_id").(string)
+			reports, err := s.GetReports(userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
@@ -138,10 +155,63 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			c.JSON(http.StatusOK, reports)
 		})
 
-		// Get user info
+		protected.GET("/reports/:id/export/:format", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			reportID := c.Param("id")
+			format := c.Param("format")
+
+			report, err := s.GetReport(reportID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+				return
+			}
+
+			if report.UserID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+				return
+			}
+
+			var data []map[string]interface{}
+			json.Unmarshal([]byte(report.Result), &data)
+			if len(data) == 0 {
+				c.JSON(http.StatusNotFound, gin.H{"error": "no data in report"})
+				return
+			}
+
+			var content string
+			var contentType string
+			var filename string
+
+			switch format {
+			case "csv":
+				content, err = export.ExportCSV(data)
+				contentType = "text/csv"
+				filename = fmt.Sprintf("report_%s.csv", reportID)
+			case "json":
+				content, err = export.ExportJSON(data)
+				contentType = "application/json"
+				filename = fmt.Sprintf("report_%s.json", reportID)
+			case "markdown":
+				content, err = export.ExportMarkdown(data)
+				contentType = "text/markdown"
+				filename = fmt.Sprintf("report_%s.md", reportID)
+			default:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported format"})
+				return
+			}
+
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+			c.Data(http.StatusOK, contentType, []byte(content))
+		})
+
 		protected.GET("/me", func(c *gin.Context) {
-			userID, _ := c.Get("user_id")
-			user, err := s.GetUserByID(userID.(string))
+			userID := c.MustGet("user_id").(string)
+			user, err := s.GetUserByID(userID)
 			if err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 				return
@@ -152,7 +222,30 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 				"email": user.Email,
 				"is_pro": user.IsPro,
 				"query_count": user.QueryCount,
+				"free_quota": 10,
+				"remaining": max(0, 10-user.QueryCount),
 			})
+		})
+
+		protected.POST("/checkout", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			type CheckoutRequest struct {
+				PlanID string `json:"plan_id" binding:"required"`
+			}
+			var req CheckoutRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			user, _ := s.GetUserByID(userID)
+			sessionURL, err := st.CreateCheckoutSession(user.Email, userID, req.PlanID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"url": sessionURL})
 		})
 	}
 }
@@ -183,4 +276,11 @@ func authMiddleware(s *store.Store) gin.HandlerFunc {
 		c.Set("user_id", userID)
 		c.Next()
 	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

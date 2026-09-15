@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ai-analytics-dashboard/internal/datasource"
 	"ai-analytics-dashboard/internal/llm"
 	"ai-analytics-dashboard/internal/store"
 )
@@ -34,12 +35,35 @@ func (p *AnalyticsProcessor) IsConfigured() bool {
 }
 
 func (p *AnalyticsProcessor) ProcessQuery(userID, naturalQuery, dataSourceID string) (*QueryResult, error) {
-	source, err := p.getDataSource(dataSourceID)
-	if err != nil {
-		return nil, fmt.Errorf("data source not found")
+	var source *store.DataSource
+	var err error
+
+	if dataSourceID == "" {
+		// Use default SQLite
+		source = &store.DataSource{
+			Type:       "sqlite",
+			Connection: "data/app.db",
+		}
+	} else {
+		sources, err := p.store.GetDataSources(userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get data sources: %v", err)
+		}
+
+		found := false
+		for _, s := range sources {
+			if s.ID == dataSourceID {
+				source = s
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("data source not found")
+		}
 	}
 
-	schema, err := p.getSchema(source)
+	schema, err := datasource.GetSchemaByType(source.Type, source.Connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %v", err)
 	}
@@ -52,7 +76,7 @@ func (p *AnalyticsProcessor) ProcessQuery(userID, naturalQuery, dataSourceID str
 		return nil, fmt.Errorf("failed to generate SQL: %v", err)
 	}
 
-	data, err := p.executeQuery(source, sqlQuery)
+	data, err := datasource.ExecuteQueryByType(source.Type, source.Connection, sqlQuery)
 	if err != nil {
 		return &QueryResult{SQL: sqlQuery, Error: err.Error()}, nil
 	}
@@ -64,100 +88,6 @@ func (p *AnalyticsProcessor) ProcessQuery(userID, naturalQuery, dataSourceID str
 		Data:      data,
 		ChartType: chartType,
 	}, nil
-}
-
-func (p *AnalyticsProcessor) getDataSource(id string) (*store.DataSource, error) {
-	return &store.DataSource{
-		Type:       "sqlite",
-		Connection: "data/app.db",
-	}, nil
-}
-
-func (p *AnalyticsProcessor) getSchema(source *store.DataSource) (string, error) {
-	db, err := sql.Open("sqlite", source.Connection)
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var schema strings.Builder
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			continue
-		}
-		schema.WriteString(fmt.Sprintf("Table: %s\n", tableName))
-
-		colRows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
-		if err != nil {
-			continue
-		}
-		for colRows.Next() {
-			var cid int
-			var columnName, colType string
-			var notnull int
-			var dfltValue sql.NullString
-			var pk int
-			if err := colRows.Scan(&cid, &columnName, &colType, &notnull, &dfltValue, &pk); err != nil {
-				continue
-			}
-			schema.WriteString(fmt.Sprintf("  - %s %s\n", columnName, colType))
-		}
-		colRows.Close()
-	}
-
-	return schema.String(), nil
-}
-
-func (p *AnalyticsProcessor) executeQuery(source *store.DataSource, query string) (json.RawMessage, error) {
-	db, err := sql.Open("sqlite", source.Connection)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
-	var result []map[string]interface{}
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, err
-		}
-
-		row := make(map[string]interface{})
-		for i, col := range columns {
-			val := values[i]
-			if val == nil {
-				row[col] = nil
-			} else {
-				row[col] = val
-			}
-		}
-		result = append(result, row)
-	}
-
-	return json.Marshal(result)
 }
 
 func (p *AnalyticsProcessor) recommendChartType(data json.RawMessage) string {
