@@ -5,17 +5,29 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"ai-analytics-dashboard/internal/auth"
+	"ai-analytics-dashboard/internal/chart"
 	"ai-analytics-dashboard/internal/datasource"
 	"ai-analytics-dashboard/internal/export"
 	"ai-analytics-dashboard/internal/processor"
 	"ai-analytics-dashboard/internal/scheduler"
 	"ai-analytics-dashboard/internal/store"
 	"ai-analytics-dashboard/internal/stripe"
+)
+
+// Simple cache for query results
+type cacheEntry struct {
+	data      interface{}
+	expiresAt time.Time
+}
+
+var queryCache = make(map[string]cacheEntry)
+var cacheMu sync.RWMutex
 )
 
 type RegisterRequest struct {

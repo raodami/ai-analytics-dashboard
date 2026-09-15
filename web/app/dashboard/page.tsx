@@ -1,11 +1,12 @@
 'use client';
-import { useEffect, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
   ScatterChart, Scatter, RadarChart, Radar, PolarGrid, 
   PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, 
-  CartesianGrid, Tooltip, Legend 
+  CartesianGrid, Tooltip, Legend, 
+  ResponsiveContainer, Brush
 } from 'recharts';
 
 type QueryResult = {
@@ -25,6 +26,7 @@ type Report = {
   chart_type: string;
   result: string;
   created_at: number;
+  shared_with?: string[];
 };
 
 type DataSource = {
@@ -47,9 +49,25 @@ type ScheduleJob = {
   enabled: boolean;
 };
 
-function DashboardContent() {
+type Team = {
+  id: string;
+  name: string;
+  description: string;
+  owner_id: string;
+  created_at: number;
+  members?: TeamMember[];
+};
+
+type TeamMember = {
+  user_id: string;
+  team_id: string;
+  role: string;
+  invited_at: number;
+  joined_at: number;
+};
+
+export default function Dashboard() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [user, setUser] = useState<any>(null);
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -65,6 +83,13 @@ function DashboardContent() {
   const [newDS, setNewDS] = useState({ name: '', type: 'sqlite', connection: '' });
   const [showAddSchedule, setShowAddSchedule] = useState(false);
   const [newSchedule, setNewSchedule] = useState({ name: '', sql: '', query: '', interval: '1h', chart_type: 'line' });
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<string>('');
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [newTeam, setNewTeam] = useState({ name: '', description: '' });
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -93,6 +118,10 @@ function DashboardContent() {
     fetch('/api/schedules', { headers: { Authorization: `Bearer ${token}` } })
       .then(res => res.json())
       .then(data => setSchedules(data));
+
+    fetch('/api/teams', { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => setTeams(data));
   }, [router]);
 
   const handleQuery = async (e: React.FormEvent) => {
@@ -109,7 +138,10 @@ function DashboardContent() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ natural_query: query }),
+        body: JSON.stringify({ 
+          natural_query: query,
+          team_id: selectedTeam || undefined
+        }),
       });
 
       const data = await res.json();
@@ -224,6 +256,47 @@ function DashboardContent() {
     }
   };
 
+  const createTeam = async () => {
+    const token = localStorage.getItem('token');
+    const res = await fetch('/api/teams', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(newTeam),
+    });
+    
+    if (res.ok) {
+      const team = await res.json();
+      setTeams([...teams, team]);
+      setSelectedTeam(team.id);
+      setShowCreateTeam(false);
+      setNewTeam({ name: '', description: '' });
+    }
+  };
+
+  const inviteMember = async () => {
+    const token = localStorage.getItem('token');
+    const res = await fetch('/api/teams/:id/invite', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+    });
+    
+    if (res.ok) {
+      setShowInvite(false);
+      setInviteEmail('');
+      // Refresh teams to show new invite
+      fetch('/api/teams', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => setTeams(data));
+    }
+  };
+
   const renderChart = () => {
     if (!result?.data?.length) return null;
 
@@ -233,53 +306,92 @@ function DashboardContent() {
     switch (result.chart_type) {
       case 'line':
         return (
-          <LineChart width={600} height={300} data={result.data.map((r, i) => ({
-            label: labels.map(l => r[l]).join(', '),
-            value: values[i]
-          }))}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="value" stroke="#533afd" strokeWidth={2} dot={{ r: 4 }} />
-          </LineChart>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={result.data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+              <XAxis dataKey={labels[0]} stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip 
+                contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(83, 58, 253, 0.3)', borderRadius: 8 }}
+                labelStyle={{ color: '#c9b1e0' }}
+              />
+              <Legend />
+              <Line type="monotone" dataKey={values[0] ? Object.keys(result.data[0])[1] || Object.keys(result.data[0])[0] : ''} stroke="#533afd" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              <Brush dataKey={labels[0]} height={30} stroke="#533afd" />
+            </LineChart>
+          </ResponsiveContainer>
         );
       case 'bar':
         return (
-          <BarChart width={600} height={300} data={result.data.map((r, i) => ({
-            label: labels.map(l => r[l]).join(', '),
-            value: values[i]
-          }))}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="value" fill="#533afd" radius={[4, 4, 0, 0]} />
-          </BarChart>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={result.data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+              <XAxis dataKey={labels[0]} stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip 
+                contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(83, 58, 253, 0.3)', borderRadius: 8 }}
+                labelStyle={{ color: '#c9b1e0' }}
+              />
+              <Legend />
+              <Bar dataKey={values[0] ? Object.keys(result.data[0])[1] || Object.keys(result.data[0])[0] : ''} fill="#533afd" radius={[4, 4, 0, 0]} />
+              <Brush dataKey={labels[0]} height={30} stroke="#533afd" />
+            </BarChart>
+          </ResponsiveContainer>
         );
       case 'pie':
         return (
-          <PieChart width={600} height={300}>
-            <Pie 
-              data={result.data.map((r, i) => ({ 
-                name: labels[0] in r ? r[labels[0]] : `Item ${i+1}`, 
-                value: values[i] 
-              }))} 
-              dataKey="value" 
-              nameKey="name"
-              cx="50%" 
-              cy="50%" 
-              outerRadius={120}
-            >
-              {[ '#533afd', '#061b31', '#c9b1e0', '#f0b8c8' ].map((color, i) => (
-                <Cell key={i} fill={color} />
-              ))}
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie 
+                data={result.data.map((r, i) => ({ 
+                  name: labels[0] in r ? r[labels[0]] : `Item ${i+1}`, 
+                  value: values[i] 
+                }))} 
+                dataKey="value" 
+                nameKey="name"
+                cx="50%" 
+                cy="50%" 
+                outerRadius={120}
+              >
+                {[ '#533afd', '#061b31', '#c9b1e0', '#f0b8c8', '#7c3aed', '#1e40af' ].map((color, i) => (
+                  <Cell key={i} fill={color} />
+                ))}
+              </Pie>
+              <Tooltip 
+                contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(83, 58, 253, 0.3)', borderRadius: 8 }}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        );
+      case 'scatter':
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+              <XAxis dataKey={labels[0]} type="number" stroke="#94a3b8" />
+              <YAxis dataKey={labels[1] || labels[0]} type="number" stroke="#94a3b8" />
+              <Tooltip 
+                cursor={{ strokeDasharray: '3 3' }}
+                contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(83, 58, 253, 0.3)', borderRadius: 8 }}
+              />
+              <Scatter name="Data" data={result.data.map(r => ({ x: r[labels[0]], y: r[labels[1] || labels[0]] }))} fill="#533afd" />
+            </ScatterChart>
+          </ResponsiveContainer>
+        );
+      case 'radar':
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <RadarChart data={result.data.slice(0, 6)}>
+              <PolarGrid stroke="rgba(255,255,255,0.1)" />
+              <PolarAngleAxis dataKey={labels[0]} stroke="#94a3b8" />
+              <PolarRadiusAxis stroke="#94a3b8" />
+              <Radar name="Value" dataKey={labels[1] || labels[0]} stroke="#533afd" fill="#533afd" fillOpacity={0.3} />
+              <Tooltip 
+                contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(83, 58, 253, 0.3)', borderRadius: 8 }}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
         );
       default:
         return (
@@ -335,6 +447,53 @@ function DashboardContent() {
         </div>
       </div>
 
+      {/* Team Selector */}
+      {teams.length > 0 && (
+        <div style={{ marginBottom: 24, padding: 16, background: 'rgba(83, 58, 253, 0.1)', border: '1px solid rgba(83, 58, 253, 0.3)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ color: '#94a3b8' }}>Working in:</span>
+            <select 
+              value={selectedTeam}
+              onChange={e => setSelectedTeam(e.target.value)}
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '8px 12px', color: '#fff' }}
+            >
+              {teams.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <button 
+              onClick={() => setShowInvite(!showInvite)}
+              style={{ background: 'rgba(83, 58, 253, 0.2)', border: '1px solid rgba(83, 58, 253, 0.5)', color: '#c9b1e0', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+            >
+              Invite Member
+            </button>
+          </div>
+          
+          {showInvite && (
+            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+              <input 
+                type="email" 
+                placeholder="Email" 
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '8px 12px', color: '#fff', flex: 1 }}
+              />
+              <select 
+                value={inviteRole}
+                onChange={e => setInviteRole(e.target.value)}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '8px 12px', color: '#fff' }}
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button onClick={inviteMember} style={{ background: '#533afd', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
+                Send
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         {[
@@ -342,6 +501,7 @@ function DashboardContent() {
           { id: 'reports', label: 'Reports' },
           { id: 'datasources', label: 'Data Sources' },
           { id: 'schedules', label: 'Schedules' },
+          { id: 'team', label: 'Team' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -444,7 +604,7 @@ function DashboardContent() {
                   </div>
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Chart Type: {result.chart_type}</div>
-                    <div style={{ overflowX: 'auto' }}>
+                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 8, overflowX: 'auto' }}>
                       {renderChart()}
                     </div>
                   </div>
@@ -663,14 +823,74 @@ function DashboardContent() {
           )}
         </div>
       )}
-    </div>
-  );
-}
 
-export default function Dashboard() {
-  return (
-    <Suspense fallback={<div style={{ color: '#fff', padding: 24 }}>Loading...</div>}>
-      <DashboardContent />
-    </Suspense>
+      {/* Team Tab */}
+      {activeTab === 'team' && (
+        <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Teams</h2>
+            <button 
+              onClick={() => setShowCreateTeam(!showCreateTeam)}
+              style={{ background: 'rgba(83, 58, 253, 0.2)', border: '1px solid rgba(83, 58, 253, 0.5)', color: '#c9b1e0', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}
+            >
+              + Create Team
+            </button>
+          </div>
+
+          {showCreateTeam && (
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <input
+                  type="text"
+                  placeholder="Team Name"
+                  value={newTeam.name}
+                  onChange={e => setNewTeam({ ...newTeam, name: e.target.value })}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '10px 12px', color: '#fff' }}
+                />
+                <input
+                  type="text"
+                  placeholder="Description (optional)"
+                  value={newTeam.description}
+                  onChange={e => setNewTeam({ ...newTeam, description: e.target.value })}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '10px 12px', color: '#fff' }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={createTeam} style={{ background: '#533afd', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
+                    Create
+                  </button>
+                  <button onClick={() => setShowCreateTeam(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {teams.length === 0 ? (
+            <p style={{ color: '#94a3b8' }}>No teams yet. Create one to collaborate!</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {teams.map(team => (
+                <div key={team.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{team.name}</span>
+                      {team.description && (
+                        <span style={{ marginLeft: 12, color: '#94a3b8', fontSize: 12 }}>{team.description}</span>
+                      )}
+                    </div>
+                    <button 
+                      style={{ background: 'rgba(83, 58, 253, 0.2)', border: 'none', color: '#c9b1e0', padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                    >
+                      Manage
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
