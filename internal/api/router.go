@@ -28,7 +28,6 @@ type cacheEntry struct {
 
 var queryCache = make(map[string]cacheEntry)
 var cacheMu sync.RWMutex
-)
 
 type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
