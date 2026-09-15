@@ -285,7 +285,7 @@ export default function Dashboard() {
           {[
             { id: 'query', label: 'Query', icon: SparklesIcon },
             { id: 'reports', label: 'Reports', icon: ClockIcon },
-            { id: 'datasources', label: 'Data Sources', icon: DatabaseIcon },
+            { id: 'datasources', label: 'Data Sources', icon: ServerIcon },
             { id: 'schedules', label: 'Schedules', icon: CalendarIcon },
             { id: 'team', label: 'Team', icon: UsersIcon },
           ].map(tab => (
