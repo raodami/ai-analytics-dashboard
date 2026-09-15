@@ -9,10 +9,10 @@ import {
 } from 'recharts';
 import {
   ChartBarIcon, ClockIcon, TrashIcon, ArrowPathIcon,
-  ShareIcon, DownloadIcon, PlusIcon, DatabaseIcon,
-  CalendarIcon, UsersIcon, SparklesIcon, LoaderIcon,
-  Cog6ToothIcon, PaperAirplaneIcon, HeartIcon,
-  ChevronDownIcon, XMarkIcon
+  ShareIcon, PlusIcon, DatabaseIcon,
+  CalendarIcon, UsersIcon, SparklesIcon, Cog6ToothIcon,
+  PaperAirplaneIcon, ChevronDownIcon, XMarkIcon,
+  MagnifyingGlassIcon, ArrowDownTrayIcon, EyeIcon
 } from '@heroicons/react/24/outline';
 
 type QueryResult = {
@@ -325,7 +325,7 @@ export default function Dashboard() {
                   disabled={loading || remaining <= 0}
                   className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
                 >
-                  {loading ? <LoaderIcon className="h-5 w-5 animate-spin" /> : <PaperAirplaneIcon className="h-5 w-5" />}
+                  {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : <PaperAirplaneIcon className="h-5 w-5" />}
                   Query
                 </button>
               </form>
@@ -357,7 +357,7 @@ export default function Dashboard() {
                       <ShareIcon className="h-5 w-5" />
                     </button>
                     <button onClick={downloadChart} className="p-2 hover:bg-slate-700 rounded-lg" title="Download">
-                      <DownloadIcon className="h-5 w-5" />
+                      <ArrowDownTrayIcon className="h-5 w-5" />
                     </button>
                   </div>
                 </div>
@@ -516,10 +516,8 @@ export default function Dashboard() {
                 readOnly
                 className="flex-1 bg-slate-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300"
               />
-              <button 
-                onClick={() => navigator.clipboard.writeText(shareUrl)}
-                className="bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg text-sm"
-              >
+              <button onClick={() => navigator.clipboard.writeText(shareUrl)} className="bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                <ArrowDownTrayIcon className="h-4 w-4" />
                 Copy
               </button>
             </div>
