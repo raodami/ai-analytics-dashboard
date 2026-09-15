@@ -89,7 +89,7 @@ func getPostgresSchema(db *sql.DB) (string, error) {
 		rows.Scan(&tableName)
 		schema += fmt.Sprintf("Table: %s\n", tableName)
 
-		colRows, err := db.Query(fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1", tableName))
+		colRows, err := db.Query(fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s'", tableName))
 		if err != nil {
 			continue
 		}
