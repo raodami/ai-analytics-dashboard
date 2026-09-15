@@ -86,14 +86,7 @@ func (c *ChartConfig) renderPie() string {
 	for i, label := range c.Labels {
 		data[i] = map[string]interface{}{"name": label, "value": c.Data[0][i]}
 	}
-	return fmt.Sprintf(`
-<PieChart width={600} height={400}>
-  <Pie data={%s} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={150} label>
-    {colors.map((color, i) => <Cell key={i} fill={color} />)}
-  </Pie>
-  <Tooltip />
-  <Legend />
-</PieChart>`, jsonString(data))
+	return fmt.Sprintf(`<PieChart width={600} height={400}><Pie data={%s} dataKey="value" nameKey="name" cx="50%%" cy="50%%" outerRadius={120}><Tooltip /><Legend /></Pie></PieChart>`, jsonString(data))
 }
 
 func (c *ChartConfig) renderScatter() string {
@@ -101,18 +94,11 @@ func (c *ChartConfig) renderScatter() string {
 	for i, label := range c.Labels {
 		points[i] = map[string]interface{}{"x": label, "y": c.Data[0][i]}
 	}
-	return fmt.Sprintf(`
-<ScatterChart width={600} height={400}>
-  <CartesianGrid />
-  <XAxis type="number" dataKey="x" name="x" unit="" />
-  <YAxis type="number" dataKey="y" name="y" unit="" />
-  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-  <Scatter name="Data" data={%s} fill="#533afd" />
-</ScatterChart>`, jsonString(points))
+	return fmt.Sprintf(`<ScatterChart width={600} height={400}><CartesianGrid /><XAxis type="number" dataKey="x" /><YAxis type="number" dataKey="y" /><Tooltip /><Scatter data={%s} fill="#533afd" /></ScatterChart>`, jsonString(points))
 }
 
 func (c *ChartConfig) renderHeatmap() string {
-	return `<HeatmapChart width={600} height={400}><CartesianGrid /><XAxis dataKey="x" /><YAxis dataKey="y" /><Tooltip /><Cell data={%s} /></HeatmapChart>`
+	return `<HeatmapChart width={600} height={400}><CartesianGrid /><XAxis dataKey="x" /><YAxis dataKey="y" /><Tooltip /></HeatmapChart>`
 }
 
 func (c *ChartConfig) renderRadar() string {
@@ -120,13 +106,7 @@ func (c *ChartConfig) renderRadar() string {
 	for i, label := range c.Labels {
 		data[i] = map[string]interface{}{"subject": label, "A": c.Data[0][i], "fullMark": 100}
 	}
-	return fmt.Sprintf(`
-<RadarChart width={600} height={400} outerRadius={150} data={%s}>
-  <PolarGrid />
-  <PolarAngleAxis dataKey="subject" />
-  <PolarRadiusAxis />
-  <Radar name="Data" dataKey="A" stroke="#533afd" fill="#533afd" fillOpacity={0.6} />
-</RadarChart>`, jsonString(data))
+	return fmt.Sprintf(`<RadarChart width={600} height={400} outerRadius={150} data={%s}><PolarGrid /><PolarAngleAxis dataKey="subject" /><PolarRadiusAxis /><Radar dataKey="A" stroke="#533afd" fill="#533afd" fillOpacity={0.6} /></RadarChart>`, jsonString(data))
 }
 
 func (c *ChartConfig) renderTable() string {
@@ -177,20 +157,17 @@ func GetJSXComponent(chartType string) string {
 }
 
 func GetImportStatement(chartType string) string {
-	component := GetJSXComponent(chartType)
 	imports := []string{
 		"LineChart", "Line", "CartesianGrid", "XAxis", "YAxis",
 		"Tooltip", "Legend", "BarChart", "Bar", "PieChart", "Pie",
 		"Cell", "ScatterChart", "Scatter", "RadarChart", "Radar",
 		"PolarGrid", "PolarAngleAxis", "PolarRadiusAxis",
 	}
-	
+
 	var sb strings.Builder
 	sb.WriteString("import { ")
 	for _, imp := range imports {
-		if strings.Contains(imp, component) || component == "TableChart" {
-			sb.WriteString(imp + ", ")
-		}
+		sb.WriteString(imp + ", ")
 	}
 	sb.WriteString("} from 'recharts';")
 	return sb.String()

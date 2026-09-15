@@ -8,13 +8,20 @@ import {
   CartesianGrid, Tooltip, Legend 
 } from 'recharts';
 
+type QueryResult = {
+  sql: string;
+  data: Record<string, any>[];
+  chart_type: string;
+  error?: string;
+};
+
 export default function Dashboard() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<any>(null);
   const [query, setQuery] = useState('');
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [reports, setReports] = useState([]);
+  const [reports, setReports] = useState<any[]>([]);
   const [queries, setQueries] = useState(0);
   const [remaining, setRemaining] = useState(10);
   const [isPro, setIsPro] = useState(false);
@@ -161,7 +168,7 @@ export default function Dashboard() {
     }
   };
 
-  const downloadExport = async (reportId, format) => {
+  const downloadExport = async (reportId: string, format: string) => {
     const token = localStorage.getItem('token');
     const res = await fetch(`/api/reports/${reportId}/export/${format}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -261,7 +268,7 @@ export default function Dashboard() {
               {['csv', 'json', 'markdown'].map(fmt => (
                 <button 
                   key={fmt}
-                  onClick={() => downloadExport(result.id, fmt)}
+                  onClick={() => downloadExport(result.id || 'unknown', fmt)}
                   style={{ background: 'rgba(83, 58, 253, 0.2)', border: '1px solid rgba(83, 58, 253, 0.5)', color: '#c9b1e0', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                 >
                   Export {fmt.toUpperCase()}
