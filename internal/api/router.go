@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"ai-analytics-dashboard/internal/auth"
+	"ai-analytics-dashboard/internal/datasource"
 	"ai-analytics-dashboard/internal/export"
 	"ai-analytics-dashboard/internal/processor"
+	"ai-analytics-dashboard/internal/scheduler"
 	"ai-analytics-dashboard/internal/store"
 	"ai-analytics-dashboard/internal/stripe"
 )
@@ -25,17 +28,32 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type DataSourceRequest struct {
+	Name       string `json:"name" binding:"required"`
+	Type       string `json:"type" binding:"required"`
+	Connection string `json:"connection" binding:"required"`
+}
+
+type ScheduleRequest struct {
+	Name      string        `json:"name" binding:"required"`
+	SQL       string        `json:"sql" binding:"required"`
+	Query     string        `json:"query"`
+	Interval  string        `json:"interval"`
+	ChartType string        `json:"chart_type"`
+}
+
 func SetupRoutes(r *gin.Engine, s *store.Store) {
 	p := processor.NewAnalyticsProcessor(s)
 	st := stripe.NewClient()
 	wh := stripe.NewWebhookConfig()
+	ss := scheduler.NewScheduler()
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// Stripe Webhook (no auth required)
+	// Stripe Webhook
 	r.POST("/webhook/stripe", func(c *gin.Context) {
 		payload, err := io.ReadAll(c.Request.Body)
 		if err != nil {
@@ -73,10 +91,8 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 
 		case "customer.subscription.updated", "customer.subscription.created":
 			userID, err := wh.HandleSubscriptionUpdated(event, "")
-			if err != nil && err.Error() != "" {
-				if userID, err = extractUserIDFromEvent(event); err == nil {
-					s.SetUserPro(userID, true)
-				}
+			if err != nil && userID != "" {
+				s.SetUserPro(userID, true)
 			}
 		}
 
@@ -144,6 +160,10 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 				"is_pro": user.IsPro,
 			}})
 		})
+
+		authGroup.POST("/logout", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+		})
 	}
 
 	// Public routes
@@ -203,6 +223,47 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			}
 
 			c.JSON(http.StatusOK, reports)
+		})
+
+		protected.GET("/reports/:id", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			reportID := c.Param("id")
+
+			report, err := s.GetReport(reportID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+				return
+			}
+
+			if report.UserID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+				return
+			}
+
+			c.JSON(http.StatusOK, report)
+		})
+
+		protected.DELETE("/reports/:id", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			reportID := c.Param("id")
+
+			report, err := s.GetReport(reportID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+				return
+			}
+
+			if report.UserID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+				return
+			}
+
+			if err := s.DeleteReport(reportID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"message": "report deleted"})
 		})
 
 		protected.GET("/reports/:id/export/:format", func(c *gin.Context) {
@@ -297,6 +358,170 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 
 			c.JSON(http.StatusOK, gin.H{"url": sessionURL})
 		})
+
+		// Data Sources
+		protected.GET("/datasources", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			sources, err := s.GetDataSources(userID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, sources)
+		})
+
+		protected.POST("/datasources", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			var req DataSourceRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			dsID := uuid.New().String()
+			if err := s.CreateDataSource(dsID, userID, req.Name, req.Type, req.Connection); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusCreated, gin.H{"id": dsID, "name": req.Name, "type": req.Type})
+		})
+
+		protected.DELETE("/datasources/:id", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			dsID := c.Param("id")
+
+			// Verify ownership
+			sources, err := s.GetDataSources(userID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			found := false
+			for _, ds := range sources {
+				if ds.ID == dsID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				c.JSON(http.StatusNotFound, gin.H{"error": "data source not found"})
+				return
+			}
+
+			// Delete from DB
+			err = s.DeleteDataSource(dsID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"message": "data source deleted"})
+		})
+
+		protected.POST("/datasources/:id/schema", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			dsID := c.Param("id")
+
+			sources, err := s.GetDataSources(userID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			var ds *store.DataSource
+			for _, source := range sources {
+				if source.ID == dsID {
+					ds = source
+					break
+				}
+			}
+			if ds == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "data source not found"})
+				return
+			}
+
+			schema, err := datasource.GetSchemaByType(ds.Type, ds.Connection)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"schema": schema})
+		})
+
+		// Scheduled Reports
+		protected.GET("/schedules", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			jobs := ss.GetJobs(userID)
+			c.JSON(http.StatusOK, jobs)
+		})
+
+		protected.POST("/schedules", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			var req ScheduleRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			interval, err := time.ParseDuration(req.Interval)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid interval format"})
+				return
+			}
+
+			jobID := uuid.New().String()
+			job := &scheduler.ScheduleJob{
+				ID:        jobID,
+				UserID:    userID,
+				Name:      req.Name,
+				SQL:       req.SQL,
+				Query:     req.Query,
+				ChartType: req.ChartType,
+				Interval:  interval,
+				Enabled:   true,
+			}
+			ss.AddJob(job)
+
+			// Save to DB
+			if err := s.CreateReport(jobID, userID, req.Name, req.SQL, req.Query, req.ChartType, "scheduled"); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusCreated, job)
+		})
+
+		protected.DELETE("/schedules/:id", func(c *gin.Context) {
+			jobID := c.Param("id")
+
+			ss.RemoveJob(jobID)
+			s.DeleteReport(jobID)
+
+			c.JSON(http.StatusOK, gin.H{"message": "schedule deleted"})
+		})
+
+		protected.POST("/schedules/:id/toggle", func(c *gin.Context) {
+			userID := c.MustGet("user_id").(string)
+			jobID := c.Param("id")
+
+			job, ok := ss.GetJob(jobID)
+			if !ok {
+				c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
+				return
+			}
+			if job.UserID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+				return
+			}
+
+			// Toggle enabled state
+			ss.ToggleJob(jobID, !job.Enabled)
+
+			c.JSON(http.StatusOK, gin.H{"enabled": !job.Enabled})
+		})
 	}
 }
 
@@ -326,16 +551,6 @@ func authMiddleware(s *store.Store) gin.HandlerFunc {
 		c.Set("user_id", userID)
 		c.Next()
 	}
-}
-
-func extractUserIDFromEvent(event *stripe.WebhookEvent) (string, error) {
-	var data struct {
-		Metadata map[string]string `json:"metadata"`
-	}
-	if err := json.Unmarshal(event.Object, &data); err != nil {
-		return "", err
-	}
-	return data.Metadata["user_id"], nil
 }
 
 func max(a, b int) int {

@@ -208,6 +208,11 @@ func (s *Store) GetReports(userID string) ([]*Report, error) {
 	return reports, nil
 }
 
+func (s *Store) DeleteDataSource(id string) error {
+	_, err := s.db.Exec("DELETE FROM data_sources WHERE id = ?", id)
+	return err
+}
+
 func (s *Store) GetReport(id string) (*Report, error) {
 	var r Report
 	var createdAt, updatedAt int64
@@ -221,4 +226,9 @@ func (s *Store) GetReport(id string) (*Report, error) {
 	r.CreatedAt = time.Unix(createdAt, 0)
 	r.UpdatedAt = time.Unix(updatedAt, 0)
 	return &r, nil
+}
+
+func (s *Store) DeleteReport(id string) error {
+	_, err := s.db.Exec("DELETE FROM reports WHERE id = ?", id)
+	return err
 }
