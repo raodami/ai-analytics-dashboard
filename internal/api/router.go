@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"ai-analytics-dashboard/internal/auth"
-	"ai-analytics-dashboard/internal/chart"
 	"ai-analytics-dashboard/internal/datasource"
 	"ai-analytics-dashboard/internal/export"
 	"ai-analytics-dashboard/internal/processor"
